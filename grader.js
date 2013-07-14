@@ -24,8 +24,15 @@ References:
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var http = require('http');
+var URLFILE_DEFAULT = null;
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
+
+var assertUrlExists = function(urlpath) {
+    if(urlpath!='') return urlpath;
+    else return false;
+};
 
 var assertFileExists = function(infile) {
     var instr = infile.toString();
@@ -36,16 +43,35 @@ var assertFileExists = function(infile) {
     return instr;
 };
 
-var cheerioHtmlFile = function(htmlfile) {
-    return cheerio.load(fs.readFileSync(htmlfile));
-};
 
 var loadChecks = function(checksfile) {
     return JSON.parse(fs.readFileSync(checksfile));
 };
 
+
+var cheerioHtmlFile = function(htmlfile) {
+    return cheerio.load(fs.readFileSync(htmlfile));
+};
+
+
 var checkHtmlFile = function(htmlfile, checksfile) {
     $ = cheerioHtmlFile(htmlfile);
+    var checks = loadChecks(checksfile).sort();
+    var out = {};
+    for(var ii in checks) {
+        var present = $(checks[ii]).length > 0;
+        out[checks[ii]] = present;
+    }
+    return out;
+};
+
+
+var cheerioUrlBody = function(urlbody) {
+    return cheerio.load(urlbody);
+};
+
+var checkUrlBody = function(urlbody, checksfile) {
+    $ = cheerioUrlBody(urlbody);
     var checks = loadChecks(checksfile).sort();
     var out = {};
     for(var ii in checks) {
@@ -63,12 +89,39 @@ var clone = function(fn) {
 
 if(require.main == module) {
     program
+        .option('-u, --url <url>', 'URL to index.html', clone(assertUrlExists), URLFILE_DEFAULT)
         .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+
+    var checkJson = {};
+    if(program.url != null){
+
+        //console.log(program.url+"\n");
+	http.get(program.url, function(res) {
+            var resp_body = '';
+
+	    res.setEncoding('utf8');
+	    res.on('data', function (chunk) {
+		resp_body += chunk;
+	    }).on('end', function () {
+		//console.log('BODY: ' + chunk);
+		checkJson = checkUrlBody(resp_body, program.checks);
+		var outJson = JSON.stringify(checkJson, null, 4);
+		console.log(outJson);
+	    });
+	}).on('error', function (e) {
+            console.log("Problem with request: "+e.message);
+	});
+
+
+    } else {
+        checkJson = checkHtmlFile(program.file, program.checks);
+	var outJson = JSON.stringify(checkJson, null, 4);
+	console.log(outJson);
+    }
+
+
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
